@@ -2,25 +2,51 @@
   <div class="background">
     <div style="display: flex">
       <div class="studio-container">
-        <video autoplay :srcObject.prop="currentStream" class="video-mainarea"></video>
+        <video controls autoplay :srcObject.prop="currentStream" class="video-mainarea"></video>
       </div>
       <div style="width: 20%">
         <p class="clock">LIVE {{now}}</p>
         <textarea v-model="righttextarea" class="right-textarea" placeholder="text"></textarea>
       </div>
     </div>
-    <textarea v-model="bottomtextarea" placeholder="text" class="bottom-textarea"></textarea>
-    <details>
-      <summary>config</summary>
+    <div style="display: flex">
+      <textarea v-model="bottomtextarea" placeholder="text" class="bottom-textarea"></textarea>
+    </div>
+  </div> 
+  <details>
+    <summary>config</summary>
+    <div>
       <select v-model="selectedVideoInput">
         <option
           v-for="input in videoinputs"
           :key="input"
           :value="input.id">{{input.label}}</option>
       </select>
-      <button v-on:click="onClickSelectCameraButton">select camera</button>
-    </details>
-  </div> 
+    </div>
+    <div>
+      <select v-model="selectedAudioInput">
+        <option
+          v-for="input in audioinputs"
+          :key="input"
+          :value="input.id">{{input.label}}</option>
+      </select>
+    </div>
+    <button v-on:click="onClickSelectDeviceButton">set device</button>
+  </details>
+  <details>
+    <summary>record: {{ recorderStatus }}</summary>
+    <button v-on:click="onClickRecordStart">start</button>
+    <button v-on:click="onClickRecordRap">rap</button>
+    <button v-on:click="onClickRecordStop">stop</button>
+    <ul>
+      <li v-for="record in recordedList"
+        :key="record.url"
+      >
+        <video controls :src="record.url" style="width:300px"></video>
+        <a download="oobs.webm" :href="record.url">download</a>
+      </li>
+    </ul>
+  </details>
 </template>
 
 <style>
@@ -35,7 +61,9 @@ body::-webkit-scrollbar {
 }
 
 .background {
-  background: #ffe6ee
+  background-image: url("../assets/bg.png");
+  background-size: cover;
+  background-repeat: no-repeat;
 }
 
 .studio-container {
@@ -44,6 +72,7 @@ body::-webkit-scrollbar {
 
 .video-mainarea {
   width: 100%;
+  margin: 16px;
 }
 
 .clock {
@@ -51,6 +80,8 @@ body::-webkit-scrollbar {
   font-size: 30px;  
   font-family: 'Bebas Neue', cursive;
   text-align: center;
+  background: #ffffffcc;
+  border-radius: 16px;
 }
 
 .right-textarea {
@@ -59,16 +90,19 @@ body::-webkit-scrollbar {
   font-size: 25px;
   border: 0px;
   font-family: 'Kosugi Maru', sans-serif;
-  background: #ffffff00;
+  background: #ffffffcc;
+  border-radius: 16px;
+  padding: 8px;
 }
 
 .bottom-textarea {
-  width: 100%;
+  width: 70%;
   height: 2lh;
   font-size: 30px;
   border: 0px;
   font-family: 'Yuji Syuku', serif;
-  background: #ffffff00;
+  background: #ffffffcc;
+  border-radius: 16px;
 }
 
 </style>
@@ -78,8 +112,12 @@ export default {
   data: ()=>{
     return {
       currentStream: undefined,
+      recorder: undefined,
+      recordedList: [],
       videoinputs: [],
+      audioinputs: [],
       selectedVideoInput: '',
+      selectedAudioInput: '',
       righttextarea: "",
       bottomtextarea: "",
       now: null,
@@ -96,6 +134,14 @@ export default {
     },
     bottomtextarea(v) {
       localStorage.bottomtextarea = v
+    }
+  },
+  computed: {
+    recorderStatus: function(){
+      if (this.recorder !== undefined) {
+        return this.recorder.state
+      }
+      return "recorder not set"
     }
   },
   methods: {
@@ -119,42 +165,81 @@ export default {
         track.stop();
       })
     },
-    onClickSelectCameraButton: function() {
+    onClickSelectDeviceButton: function() {
       const currentStream = this.currentStream
-      const selectValue = this.selectedVideoInput
-      console.log("onClickSelectCameraButton", currentStream, selectValue)
+      const currentRecorder = this.recorder
+      console.log("onClickSelectCameraButton", currentStream, this.selectedVideoInput, this.selectedAudioInput)
 
+      if ( this.selectedVideoInput === '' || this.selectedAudioInput === '') {
+        return
+      } 
+
+      if (typeof currentRecorder !== 'undefined' && currentRecorder.state === 'recording') {
+        currentRecorder.stop()
+      }
       if (typeof currentStream !== 'undefined') {
         this.stopMediaTracks(currentStream);
       }
-      const videoConstraints = {width: 1280, height: 720};
-      if ( selectValue === '') {
-        videoConstraints.facingMode = 'environment';
-      } else {
-        videoConstraints.deviceId = {exact: selectValue};
-      }
+
       const constraints = {
-        video: videoConstraints,
-        audio: false
+        video: {width: 1280, height: 720, deviceId: this.selectedVideoInput},
+        audio: { deviceId: this.selectedAudioInput}
       };
       navigator.mediaDevices
         .getUserMedia(constraints)
         .then(stream => {
           this.currentStream = stream;
+          const recorder = new MediaRecorder(stream)
+          recorder.ondataavailable = function(ev){
+            console.log("ondataavailable event hooked")
+            this.addRecordedList(ev)
+          }.bind(this)
+          this.recorder = recorder
         })
         .catch(error => {
           console.error(error);
         })
+    },
+    onClickRecordStart: function(){
+      if (this.recorder !== undefined && this.recorder.state !== "recording") {
+        console.log("recording start")
+        this.recorder.start()
+      }  
+    },
+    onClickRecordRap: function(){
+      if (this.recorder !== undefined && this.recorder.state === "recording") {
+        console.log("recording rap")
+        this.recorder.requestData()
+      }
+    },
+    onClickRecordStop: function(){
+      if (this.recorder !== undefined && this.recorder.state === "recording") {
+        console.log("recording stop")
+        this.recorder.stop()
+      }
+    },
+    addRecordedList: function(ev){
+      console.log("addRecordedList")
+      this.recordedList.push({
+        url: window.URL.createObjectURL(ev.data),
+        blob: ev.data
+      })
     },
     setDevicesOption: function() {
       console.log("setDevicesOption")
       navigator.mediaDevices.enumerateDevices()
       .then(mediaDevices=>{
         const videoinputs = []
+        const audioinputs = []
         mediaDevices.forEach(mediaDevice => {
+          console.log(mediaDevice)
           if (mediaDevice.kind === 'videoinput') {
-            console.log(mediaDevice)
             videoinputs.push({
+              label: mediaDevice.label || "NONAME",
+              id: mediaDevice.deviceId,
+            })
+          }else if (mediaDevice.kind === 'audioinput') {
+            audioinputs.push({
               label: mediaDevice.label || "NONAME",
               id: mediaDevice.deviceId,
             })
@@ -162,6 +247,7 @@ export default {
         })
         console.log(videoinputs)
         this.videoinputs = videoinputs
+        this.audioinputs = audioinputs
       })
     }
   }

@@ -1,13 +1,5 @@
 <template>
   <router-view/>
-  <details>
-    <summary>メニュー</summary>
-    <div id="nav">
-      <router-link to="/">Home</router-link> |
-      <router-link to="/about">About</router-link> |
-      <router-link to="/studio">Studio</router-link>
-    </div>
-  </details>
 </template>
 
 <style>
